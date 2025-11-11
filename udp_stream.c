@@ -1,6 +1,7 @@
 #include <gst/gst.h>
 #include <glib.h>
 
+/* --- Función para manejar mensajes del bus --- */
 static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer data) {
     GMainLoop *loop = (GMainLoop *) data;
 
@@ -30,6 +31,26 @@ static gboolean bus_call(GstBus *bus, GstMessage *msg, gpointer data) {
     return TRUE;
 }
 
+/* --- Callback para el pad dinámico del demuxer --- */
+static void on_pad_added(GstElement *src, GstPad *pad, gpointer data) {
+    GstElement *parser = (GstElement *) data;
+    GstPad *sinkpad = gst_element_get_static_pad(parser, "sink");
+
+    if (gst_pad_is_linked(sinkpad)) {
+        g_print("Pad del parser ya está linkeado, se omite.\n");
+        gst_object_unref(sinkpad);
+        return;
+    }
+
+    if (gst_pad_link(pad, sinkpad) != GST_PAD_LINK_OK)
+        g_printerr("No se pudo linkear demuxer con parser.\n");
+    else
+        g_print("Pad dinámico linkeado correctamente.\n");
+
+    gst_object_unref(sinkpad);
+}
+
+/* --- Función principal --- */
 int main(int argc, char *argv[]) {
     GMainLoop *loop;
     GstElement *pipeline, *source, *demuxer, *parser, *pay, *sink;
@@ -58,32 +79,24 @@ int main(int argc, char *argv[]) {
                  NULL);
 
     g_object_set(G_OBJECT(sink),
-                 "host", "192.168.1.50",   // ⚠️ Cambia esta IP por la de la máquina receptora
+                 "host", "192.168.1.50",   // ⚠️ Cambia esta IP al host receptor
                  "port", 5000,
                  "sync", FALSE,
                  "async", FALSE,
                  NULL);
 
-    /* Añadir bus */
+    /* Conectar bus */
     bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
     bus_watch_id = gst_bus_add_watch(bus, bus_call, loop);
     gst_object_unref(bus);
 
-    /* Agregar al pipeline */
+    /* Añadir elementos al pipeline */
     gst_bin_add_many(GST_BIN(pipeline), source, demuxer, parser, pay, sink, NULL);
 
-    /* Conectar dinámicamente el demuxer */
-    g_signal_connect(demuxer, "pad-added", G_CALLBACK(+[](
-        GstElement *src, GstPad *pad, gpointer data) {
-            GstElement *parser = (GstElement *) data;
-            GstPad *sinkpad = gst_element_get_static_pad(parser, "sink");
-            if (gst_pad_link(pad, sinkpad) != GST_PAD_LINK_OK) {
-                g_printerr("No se pudo linkear demuxer con parser.\n");
-            }
-            gst_object_unref(sinkpad);
-        }), parser);
+    /* Conectar callback del pad dinámico */
+    g_signal_connect(demuxer, "pad-added", G_CALLBACK(on_pad_added), parser);
 
-    /* Enlazar elementos restantes */
+    /* Enlazar los elementos */
     if (!gst_element_link(source, demuxer)) {
         g_printerr("Error al linkear source y demuxer.\n");
         return -1;
@@ -94,13 +107,14 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    /* Reproducir */
+    /* Iniciar reproducción */
     g_print("Transmitiendo video por UDP...\n");
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
+    /* Loop principal */
     g_main_loop_run(loop);
 
-    /* Cleanup */
+    /* Limpieza */
     g_print("Deteniendo pipeline.\n");
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);
