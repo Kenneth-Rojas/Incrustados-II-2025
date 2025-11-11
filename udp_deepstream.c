@@ -34,15 +34,22 @@ int main(int argc, char *argv[]) {
     gst_init(&argc, &argv);
     loop = g_main_loop_new(NULL, FALSE);
 
+    // --- PIPELINE CORREGIDO ---
     const gchar *pipeline_desc =
         "filesrc location=/opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 ! "
-        "qtdemux ! h264parse ! nvv4l2decoder ! queue ! mux.sink_0 "
+        "qtdemux ! h264parse ! nvv4l2decoder ! "
+        "video/x-raw(memory:NVMM),format=NV12 ! queue ! mux.sink_0 "
         "nvstreammux name=mux width=1920 height=1080 batch-size=1 ! queue ! "
-        "nvvideoconvert ! nvinfer config-file-path=/opt/nvidia/deepstream/deepstream-6.0/samples/configs/deepstream-app/config_infer_primary.txt "
+        "nvvideoconvert ! nvinfer "
+        "config-file-path=/opt/nvidia/deepstream/deepstream-6.0/samples/configs/deepstream-app/config_infer_primary.txt "
         "model-engine-file=/opt/nvidia/deepstream/deepstream-6.0/samples/models/Primary_Detector/resnet10.caffemodel_b1_gpu0_fp16.engine ! "
         "queue ! nvdsosd process-mode=HW_MODE ! tee name=t "
-        "t. ! queue ! nvvideoconvert ! nveglglessink sync=false "
-        "t. ! queue ! nvvideoconvert ! 'video/x-raw(memory:NVMM),format=I420' ! "
+        // Rama 1: display (ahora fakesink, para evitar cuelgue)
+        "t. ! queue ! nvvideoconvert ! fakesink sync=false "
+        // Si querés reactivar salida local en GUI, usa esta línea en lugar de la anterior:
+        // "t. ! queue ! nvvideoconvert ! nvoverlaysink sync=false "
+        // Rama 2: transmisión UDP
+        "t. ! queue ! nvvideoconvert ! video/x-raw(memory:NVMM),format=I420 ! "
         "nvv4l2h264enc insert-sps-pps=true bitrate=4000000 ! h264parse ! rtph264pay ! "
         "udpsink host=192.168.10.1 port=5000 sync=false async=false";
 
