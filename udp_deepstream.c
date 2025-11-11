@@ -34,7 +34,6 @@ int main(int argc, char *argv[]) {
     gst_init(&argc, &argv);
     loop = g_main_loop_new(NULL, FALSE);
 
-    /* --- Pipeline DeepStream integrado --- */
     const gchar *pipeline_desc =
         "filesrc location=/opt/nvidia/deepstream/deepstream/samples/streams/sample_1080p_h264.mp4 ! "
         "qtdemux ! h264parse ! nvv4l2decoder ! queue ! mux.sink_0 "
@@ -42,30 +41,27 @@ int main(int argc, char *argv[]) {
         "nvvideoconvert ! nvinfer config-file-path=/opt/nvidia/deepstream/deepstream-6.0/samples/configs/deepstream-app/config_infer_primary.txt "
         "model-engine-file=/opt/nvidia/deepstream/deepstream-6.0/samples/models/Primary_Detector/resnet10.caffemodel_b1_gpu0_fp16.engine ! "
         "queue ! nvdsosd process-mode=HW_MODE ! tee name=t "
-        "t. ! queue ! nvvideoconvert ! nvoverlaysink sync=false "
+        "t. ! queue ! nvvideoconvert ! nveglglessink sync=false "
         "t. ! queue ! nvvideoconvert ! 'video/x-raw(memory:NVMM),format=I420' ! "
         "nvv4l2h264enc insert-sps-pps=true bitrate=4000000 ! h264parse ! rtph264pay ! "
         "udpsink host=192.168.10.1 port=5000 sync=false async=false";
 
+    g_print("Creando pipeline...\n");
     pipeline = gst_parse_launch(pipeline_desc, NULL);
-
     if (!pipeline) {
         g_printerr("Error al crear el pipeline. Saliendo.\n");
         return -1;
     }
 
-    /* Bus y loop */
     bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
     bus_watch_id = gst_bus_add_watch(bus, bus_call, loop);
     gst_object_unref(bus);
 
-    /* Iniciar ejecución */
     g_print("Iniciando pipeline DeepStream + UDP...\n");
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
     g_main_loop_run(loop);
 
-    /* Cleanup */
     g_print("Deteniendo pipeline\n");
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);
